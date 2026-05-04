@@ -14,8 +14,7 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, ConversationHandler, ContextTypes, filters
 )
-from google import genai
-from google.genai import types
+import requests
 from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from datetime import datetime
@@ -38,31 +37,44 @@ logger = logging.getLogger(__name__)
 ) = range(11)
 
 # ─── GEMINI SETUP ──────────────────────────────────────────────────────────────
-gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-GEMINI_MODEL = None  # se detecteaza automat la primul apel
+GEMINI_BASE = "https://generativelanguage.googleapis.com/v1/models"
 
-def get_working_model():
-    """Interogheaza lista reala de modele si returneaza primul flash disponibil."""
-    global GEMINI_MODEL
-    if GEMINI_MODEL:
-        return GEMINI_MODEL
-    try:
-        all_models = [m.name for m in gemini_client.models.list()]
-        logger.info(f"Modele disponibile: {all_models}")
-        priority = ["gemini-2.0-flash-lite", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"]
-        for preferred in priority:
-            for m in all_models:
-                if preferred in m:
-                    GEMINI_MODEL = m
-                    logger.info(f"Model ales: {GEMINI_MODEL}")
-                    return GEMINI_MODEL
-        # fallback: primul model din lista
-        GEMINI_MODEL = all_models[0]
-        logger.info(f"Model fallback: {GEMINI_MODEL}")
-        return GEMINI_MODEL
-    except Exception as e:
-        logger.error(f"Nu pot lista modele: {e}")
-        return "gemini-2.0-flash-lite"
+def gemini_generate(prompt: str) -> str:
+    """Apel REST direct la Gemini API v1 - fara SDK, fara v1beta."""
+    # Lista modele disponibile via v1
+    r = requests.get(f"{GEMINI_BASE}?key={GEMINI_API_KEY}", timeout=10)
+    r.raise_for_status()
+    models = r.json().get("models", [])
+    
+    # Filtrare modele care suporta generateContent
+    available = [
+        m["name"].replace("models/", "")
+        for m in models
+        if "generateContent" in m.get("supportedGenerationMethods", [])
+    ]
+    logger.info(f"Modele disponibile v1: {available}")
+    
+    # Prioritate modele
+    preferred = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"]
+    chosen = None
+    for p in preferred:
+        for a in available:
+            if p in a:
+                chosen = a
+                break
+        if chosen:
+            break
+    if not chosen and available:
+        chosen = available[0]
+    if not chosen:
+        raise Exception("Niciun model disponibil pentru aceasta cheie API.")
+    
+    logger.info(f"Folosesc modelul: {chosen}")
+    url = f"{GEMINI_BASE}/{chosen}:generateContent?key={GEMINI_API_KEY}"
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    resp = requests.post(url, json=payload, timeout=120)
+    resp.raise_for_status()
+    return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
 
 # ─── SYSTEM PROMPT - antidetecție AI ──────────────────────────────────────────
 SYSTEM_PERSONA = """
@@ -570,9 +582,7 @@ Răspunde STRICT în format JSON cu structura de mai jos. NU adăuga text în af
 }}
 """
 
-    model_name = get_working_model()
-    response = gemini_client.models.generate_content(model=model_name, contents=prompt)
-    text = response.text.strip()
+    text = gemini_generate(prompt)
 
     # Curăță markdown dacă Gemini adaugă ```json
     if text.startswith("```"):
