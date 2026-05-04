@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 # ─── GEMINI SETUP ──────────────────────────────────────────────────────────────
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash")
+model = genai.GenerativeModel("gemini-2.5-flash-preview-04-17")
 
 # ─── SYSTEM PROMPT - antidetecție AI ──────────────────────────────────────────
 SYSTEM_PERSONA = """
@@ -727,13 +727,56 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.error(f"Eroare generare: {e}", exc_info=True)
+        context.user_data["_saved"] = student_data
+        keyboard = [[InlineKeyboardButton("🔄 Încearcă din nou", callback_data="retry_generate")]]
         await query.message.reply_text(
-            f"❌ A apărut o eroare la generare: `{str(e)[:200]}`\n\n"
-            "Încearcă din nou cu /start sau contactează administratorul.",
-            parse_mode="Markdown"
+            f"❌ Eroare la generare: `{str(e)[:200]}`\n\nApasă butonul de mai jos pentru a reîncerca fără a completa din nou datele.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
     return ConversationHandler.END
+
+
+async def retry_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    student_data = context.user_data.get("_saved")
+    if not student_data:
+        await query.message.reply_text("❌ Sesiunea a expirat. Folosește /start pentru a reîncepe.")
+        return
+    await query.message.reply_text("🔄 Reîncerc generarea... Te rog să aștepți ~60-90 sec.")
+    user_id = query.from_user.id
+    try:
+        generated = generate_with_gemini(student_data)
+        output_path = OUTPUT_DIR / f"examen_{student_data['last_name']}_{student_data['org_name'].replace(' ', '_')}_{user_id}.xlsx"
+        fill_excel(student_data, generated, output_path)
+        with open(output_path, "rb") as f:
+            await query.message.reply_document(
+                document=f,
+                filename=f"Proiect_Vizibilitate_{student_data['last_name']}_{student_data['org_name'][:20]}.xlsx",
+                caption=(
+                    f"✅ *Proiectul tău este gata!*\n\n"
+                    f"📋 Toate cele 11 sheet-uri au fost completate.\n\n"
+                    f"⚠️ *Ce mai trebuie să faci manual:*\n"
+                    f"• Inserează screenshot-uri reale\n"
+                    f"• Completează linkurile reale\n"
+                    f"• Creează cele 4 materiale în Canva\n"
+                    f"• Verifică datele din sheet-ul GHID\n\n"
+                    f"📌 Recitește proiectul înainte de predare!"
+                ),
+                parse_mode="Markdown"
+            )
+        output_path.unlink(missing_ok=True)
+        context.user_data.pop("_saved", None)
+    except Exception as e:
+        logger.error(f"Eroare retry: {e}", exc_info=True)
+        keyboard = [[InlineKeyboardButton("🔄 Încearcă din nou", callback_data="retry_generate")]]
+        await query.message.reply_text(
+            f"❌ Eroare din nou: `{str(e)[:200]}`\n\nPoți reîncerca oricând.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -775,6 +818,7 @@ def main():
     )
 
     app.add_handler(conv_handler)
+    app.add_handler(CallbackQueryHandler(retry_generate, pattern="^retry_generate$"))
     app.add_handler(CommandHandler("help", help_cmd))
 
     logger.info("Bot pornit!")
