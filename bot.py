@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 # ─── GEMINI SETUP ──────────────────────────────────────────────────────────────
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel("gemini-2.0-flash")
 
 # ─── SYSTEM PROMPT - antidetecție AI ──────────────────────────────────────────
 SYSTEM_PERSONA = """
