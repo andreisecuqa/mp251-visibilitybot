@@ -38,15 +38,31 @@ logger = logging.getLogger(__name__)
 ) = range(11)
 
 # ─── GEMINI SETUP ──────────────────────────────────────────────────────────────
-gemini_client = genai.Client(
-    api_key=GEMINI_API_KEY,
-    http_options={"api_version": "v1"}
-)
-GEMINI_MODELS = [
-    "gemini-2.0-flash-lite",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
-]
+gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+GEMINI_MODEL = None  # se detecteaza automat la primul apel
+
+def get_working_model():
+    """Interogheaza lista reala de modele si returneaza primul flash disponibil."""
+    global GEMINI_MODEL
+    if GEMINI_MODEL:
+        return GEMINI_MODEL
+    try:
+        all_models = [m.name for m in gemini_client.models.list()]
+        logger.info(f"Modele disponibile: {all_models}")
+        priority = ["gemini-2.0-flash-lite", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"]
+        for preferred in priority:
+            for m in all_models:
+                if preferred in m:
+                    GEMINI_MODEL = m
+                    logger.info(f"Model ales: {GEMINI_MODEL}")
+                    return GEMINI_MODEL
+        # fallback: primul model din lista
+        GEMINI_MODEL = all_models[0]
+        logger.info(f"Model fallback: {GEMINI_MODEL}")
+        return GEMINI_MODEL
+    except Exception as e:
+        logger.error(f"Nu pot lista modele: {e}")
+        return "gemini-2.0-flash-lite"
 
 # ─── SYSTEM PROMPT - antidetecție AI ──────────────────────────────────────────
 SYSTEM_PERSONA = """
@@ -554,19 +570,9 @@ Răspunde STRICT în format JSON cu structura de mai jos. NU adăuga text în af
 }}
 """
 
-    last_error = None
-    for model_name in GEMINI_MODELS:
-        try:
-            response = gemini_client.models.generate_content(model=model_name, contents=prompt)
-            text = response.text.strip()
-            logger.info(f"Model folosit cu succes: {model_name}")
-            break
-        except Exception as e:
-            logger.warning(f"Model {model_name} a esuat: {e}")
-            last_error = e
-            continue
-    else:
-        raise last_error
+    model_name = get_working_model()
+    response = gemini_client.models.generate_content(model=model_name, contents=prompt)
+    text = response.text.strip()
 
     # Curăță markdown dacă Gemini adaugă ```json
     if text.startswith("```"):
