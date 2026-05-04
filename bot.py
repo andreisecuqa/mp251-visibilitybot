@@ -39,7 +39,12 @@ logger = logging.getLogger(__name__)
 
 # ─── GEMINI SETUP ──────────────────────────────────────────────────────────────
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-GEMINI_MODEL = "gemini-2.0-flash-lite"
+# Fallback chain - daca primul model pica, incearca urmatorul
+GEMINI_MODELS = [
+    "gemini-2.0-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash-latest",
+]
 
 # ─── SYSTEM PROMPT - antidetecție AI ──────────────────────────────────────────
 SYSTEM_PERSONA = """
@@ -547,8 +552,19 @@ Răspunde STRICT în format JSON cu structura de mai jos. NU adăuga text în af
 }}
 """
 
-    response = gemini_client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-    text = response.text.strip()
+    last_error = None
+    for model_name in GEMINI_MODELS:
+        try:
+            response = gemini_client.models.generate_content(model=model_name, contents=prompt)
+            text = response.text.strip()
+            logger.info(f"Model folosit cu succes: {model_name}")
+            break
+        except Exception as e:
+            logger.warning(f"Model {model_name} a esuat: {e}")
+            last_error = e
+            continue
+    else:
+        raise last_error
 
     # Curăță markdown dacă Gemini adaugă ```json
     if text.startswith("```"):
