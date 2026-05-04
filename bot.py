@@ -53,28 +53,42 @@ def gemini_generate(prompt: str) -> str:
         if "generateContent" in m.get("supportedGenerationMethods", [])
     ]
     logger.info(f"Modele disponibile v1: {available}")
-    
-    # Prioritate modele
-    preferred = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"]
-    chosen = None
+
+    # Ordinea de preferinta - modele stabile > modele noi (mai putin stabile)
+    preferred = ["gemini-2.0-flash-001", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"]
+    ordered = []
     for p in preferred:
         for a in available:
-            if p in a:
-                chosen = a
-                break
-        if chosen:
-            break
-    if not chosen and available:
-        chosen = available[0]
-    if not chosen:
-        raise Exception("Niciun model disponibil pentru aceasta cheie API.")
-    
-    logger.info(f"Folosesc modelul: {chosen}")
-    url = f"{GEMINI_BASE}/{chosen}:generateContent?key={GEMINI_API_KEY}"
+            if a == p and a not in ordered:
+                ordered.append(a)
+    # adauga restul care nu sunt in lista de preferinte
+    for a in available:
+        if a not in ordered:
+            ordered.append(a)
+
+    if not ordered:
+        raise Exception("Niciun model disponibil.")
+
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
-    resp = requests.post(url, json=payload, timeout=120)
-    resp.raise_for_status()
-    return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+    last_error = None
+    for chosen in ordered:
+        url = f"{GEMINI_BASE}/{chosen}:generateContent?key={GEMINI_API_KEY}"
+        logger.info(f"Incerc modelul: {chosen}")
+        try:
+            resp = requests.post(url, json=payload, timeout=120)
+            if resp.status_code in (429, 500, 503):
+                logger.warning(f"Model {chosen} a returnat {resp.status_code}, incerc urmatorul")
+                last_error = f"{resp.status_code} {resp.text[:100]}"
+                continue
+            resp.raise_for_status()
+            logger.info(f"Succes cu modelul: {chosen}")
+            return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        except Exception as e:
+            logger.warning(f"Model {chosen} a esuat: {e}")
+            last_error = e
+            continue
+
+    raise Exception(f"Toate modelele au esuat. Ultima eroare: {last_error}")
 
 # ─── SYSTEM PROMPT - antidetecție AI ──────────────────────────────────────────
 SYSTEM_PERSONA = """
