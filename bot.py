@@ -38,12 +38,14 @@ logger = logging.getLogger(__name__)
 ) = range(11)
 
 # ─── GEMINI SETUP ──────────────────────────────────────────────────────────────
-gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-# Fallback chain - daca primul model pica, incearca urmatorul
+gemini_client = genai.Client(
+    api_key=GEMINI_API_KEY,
+    http_options={"api_version": "v1"}
+)
 GEMINI_MODELS = [
     "gemini-2.0-flash-lite",
     "gemini-2.0-flash",
-    "gemini-1.5-flash-latest",
+    "gemini-1.5-flash",
 ]
 
 # ─── SYSTEM PROMPT - antidetecție AI ──────────────────────────────────────────
