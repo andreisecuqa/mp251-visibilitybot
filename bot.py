@@ -598,15 +598,48 @@ Răspunde STRICT în format JSON cu structura de mai jos. NU adăuga text în af
 
     text = gemini_generate(prompt)
 
-    # Curăță markdown dacă Gemini adaugă ```json
-    if text.startswith("```"):
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
+    # Curata markdown
+    if "```" in text:
+        parts = text.split("```")
+        for part in parts:
+            if part.startswith("json"):
+                text = part[4:]
+                break
+            elif "{" in part:
+                text = part
+                break
     text = text.strip()
 
-    import json
-    return json.loads(text)
+    # Curata caractere de control invalide din JSON (newlines in string-uri)
+    import json, re
+    # Inlocuieste newlines/tabs neescapate din interiorul string-urilor JSON
+    def fix_json_string(s):
+        result = []
+        in_string = False
+        i = 0
+        while i < len(s):
+            c = s[i]
+            if c == '"' and (i == 0 or s[i-1] != '\\'):
+                in_string = not in_string
+                result.append(c)
+            elif in_string and c == '\n':
+                result.append('\\n')
+            elif in_string and c == '\r':
+                result.append('\\r')
+            elif in_string and c == '\t':
+                result.append('\\t')
+            elif in_string and ord(c) < 32:
+                result.append(' ')
+            else:
+                result.append(c)
+            i += 1
+        return ''.join(result)
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        text_fixed = fix_json_string(text)
+        return json.loads(text_fixed)
 
 
 # ─── TELEGRAM HANDLERS ─────────────────────────────────────────────────────────
