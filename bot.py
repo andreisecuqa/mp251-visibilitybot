@@ -14,7 +14,8 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, ConversationHandler, ContextTypes, filters
 )
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from datetime import datetime
@@ -37,8 +38,8 @@ logger = logging.getLogger(__name__)
 ) = range(11)
 
 # ─── GEMINI SETUP ──────────────────────────────────────────────────────────────
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.5-flash-preview-04-17")
+gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+GEMINI_MODEL = "gemini-2.0-flash-lite"
 
 # ─── SYSTEM PROMPT - antidetecție AI ──────────────────────────────────────────
 SYSTEM_PERSONA = """
@@ -546,7 +547,7 @@ Răspunde STRICT în format JSON cu structura de mai jos. NU adăuga text în af
 }}
 """
 
-    response = model.generate_content(prompt)
+    response = gemini_client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
     text = response.text.strip()
 
     # Curăță markdown dacă Gemini adaugă ```json
